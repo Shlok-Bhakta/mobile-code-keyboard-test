@@ -1,22 +1,36 @@
-# Mobile Editor
+# MobileEditor
 
-Phone-native code editing prototype. System keyboard stays. Custom controls above it do the work Apple's text interactions do poorly: punctuation, caret movement, selection, indent.
+Phone-native code editing prototype. Apple's keyboard, with a custom bar for punctuation, caret, selection, and indent.
 
 Not an IDE. No git, files, LSP, or cloud. Open it and type.
+
+## Screenshots
+
+| Dark | Light |
+| --- | --- |
+| ![Editor in dark mode](docs/screenshots/01-editor-dark.png) | ![Editor in light mode](docs/screenshots/02-editor-light.png) |
+
+Rust sample, line-number gutter, TYPE bar with NAV pad / pairs / undo / SYM key over Apple's keyboard.
+
+## Install on iPhone
+
+Autoloader signs the unsigned IPA on-device. Open this on the phone:
+
+https://marginally-better-apps.github.io/Autoloader/?url=https%3A%2F%2Fgithub.com%2FShlok-Bhakta%2Fmobile-code-keyboard-test%2Freleases%2Fdownload%2Fbaseline%2FMobileEditor.ipa
+
+Or direct:
+
+`autoloader://install?url=https%3A%2F%2Fgithub.com%2FShlok-Bhakta%2Fmobile-code-keyboard-test%2Freleases%2Fdownload%2Fbaseline%2FMobileEditor.ipa`
+
+Raw IPA:
+
+https://github.com/Shlok-Bhakta/mobile-code-keyboard-test/releases/download/baseline/MobileEditor.ipa
 
 ## Open in Xcode
 
 `MobileEditor.xcodeproj`. Scheme `MobileEditor`. iPhone, iOS 17+.
 
 Unsigned device builds are already configured (`CODE_SIGNING_ALLOWED = NO`). Sign on device with Autoloader or your own cert.
-
-On-device install (Autoloader signs locally):
-
-- Open this on the phone: https://planista.shloklab.us/V18z7j-tDCOX_Td4
-- Or: `autoloader://install?url=https%3A%2F%2Fplanista.shloklab.us%2F3MDZUgfn-6bKWBi0`
-- IPA: https://planista.shloklab.us/3MDZUgfn-6bKWBi0
-
-Local copy: `dist/MobileEditor.ipa`. Rebuild with `xcodebuild` if the links go stale.
 
 Scratch text autosaves to `Documents/scratch.txt` and comes back on next launch.
 
@@ -36,9 +50,9 @@ MobileEditor/
     EditorHaptics.swift
     EditorLog.swift
   Input/
-    EditingAccessoryView.swift   TYPE / NAV / SYM surfaces
-    HoldButton.swift             momentary NAV / SYM / SELECT
-    CursorTrackpadView.swift
+    EditingAccessoryView.swift   bar above the system keyboard
+    NavSelectPad.swift           corner SELECT
+    HoldButton.swift             SYM hold
   Gutter/LineNumberGutter.swift
   Samples/SampleDocuments.swift
   Settings/DebugSettingsView.swift
@@ -48,43 +62,36 @@ UI controls call `EditorController`. Don't reach into `UITextView` ranges from b
 
 ## Interaction map
 
-The accessory is always above the keyboard. The strip at the top says `TYPE`, `NAV`, `NAV SELECT`, or `SYM`.
+No labels. Color is the mode: idle, blue NAV, orange SELECT, purple SYM.
 
-**TYPE**
+The bar sits on Apple's keyboard. Autocap, autocorrect, smart quotes, and inline prediction are off.
 
-- Type on the system keyboard. Autocorrect, smart quotes, capitalization, and inline prediction are off.
-- `TAB` indents 4 spaces. Swipe `TAB` left, long-press it, or tap `⇤` to outdent.
-- Pair buttons `() {} [] "" '' ``` insert both sides and leave the caret inside. If text is selected they wrap it.
-- Typing a closer sitting on an already-inserted closer jumps over it.
-- `=` `;` `.` `,` insert one character.
-- `↶` `↷` undo / redo.
+**TYPE** (50 pt bar)
 
-**NAV** (hold with left thumb)
+- Indent / outdent icons. Swipe indent left or long-press to outdent.
+- Pair keys `() {} [] "" '' ``` wrap or insert-and-nest.
+- Undo / redo icons.
 
-- Finger down: navigation layer. Finger up: TYPE again. Nothing stays latched unless you turn off momentary in Tune.
-- `← → ↑ ↓` character / line. Vertical tries to keep column.
-- `W← W→` word-ish tokens: letters, digits, underscore. Punctuation is its own class.
-- `HOME` toggles first non-space vs column 0. `END` is end of line.
-- `PG↑ PG↓` jump by a screenful.
-- `EXPAND` grows selection: word, line, blank-line block, document. No parser.
-- `UNDO REDO COPY CUT PASTE` on the bottom row of the layer.
+**NAV pad** (left, one finger)
 
-**SELECT** (hold in NAV, right side)
+Hold the pad. It grows. Orange square sits in the **bottom-left corner** so a thumb can slide into the corner to select.
 
-- Movement extends selection instead of moving a caret.
-- Release SELECT: selection stays. Release NAV: back to TYPE, selection stays.
+- Stay off the square: the NAV icons move the caret.
+- Slide into the corner: the square grows and sticks. Same icons now extend selection. Leave that bigger region to drop back to move. Selection stays.
+- Lift: TYPE. Selection stays.
 
-**CURSOR** trackpad
+For free cursor movement, use Apple's spacebar trackpad on the system keyboard.
 
-- Drag horizontally: characters. Vertically: lines. Relative to finger motion, not absolute position.
-- Defaults: 12 pt / character, 24 pt / line.
-- Fast flicks jump by words. Finger up stops immediately.
-- Default: while NAV is held, trackpad extends selection (two thumbs, no SELECT). Hold SELECT + drag also selects. Turn `NAV + trackpad selects` off in Tune if that feels wrong.
+**NAV layer** (icons while the pad is held)
 
-**SYM** (hold with right thumb)
+The bar springs to 108 pt so the two icon rows are easier to hit without eating the editor.
 
-- Programming symbol pad. Release to return to TYPE.
-- Individual keys insert one character. Pair wrapping stays on the TYPE row.
+- `« »` word, chevrons char/line, line-start / line-end
+- copy, cut, paste, expand (word → line → block → document)
+
+**SYM** (hold `#` on the right)
+
+Keep your thumb down. The bar springs open and the symbol grid takes the middle. Slide onto a glyph: it swells, neighbors scoot, and `#` shows the character. Lift to insert that one. Lift on `#` with no hover and nothing is typed. Positions stay put so you can learn the grid.
 
 **Gutter**
 
@@ -93,7 +100,7 @@ The accessory is always above the keyboard. The strip at the top says `TYPE`, `N
 
 **Find**
 
-- `Find` in the top bar, or Cmd-F with a hardware keyboard. Next / previous only. No replace.
+- Magnifying glass, or Cmd-F. Next / previous only.
 
 **Return**
 
@@ -106,20 +113,16 @@ The accessory is always above the keyboard. The strip at the top says `TYPE`, `N
 
 ## Tune
 
-Top-right `Tune`. Values persist in UserDefaults.
+Slider icon, top right. Values persist in UserDefaults.
 
 Worth changing on device first:
 
-- Horizontal / vertical trackpad thresholds
-- Acceleration and the two velocity cutoffs
 - Haptics
 - Indent width / tabs
 - Line wrap
-- NAV/SYM delay (0 = instant hold)
-- Momentary vs toggle for NAV and SYM
-- `NAV + trackpad selects`
+- NAV/SYM delay and momentary vs toggle
 
-Logs go to the Xcode console: `NAV_DOWN`, `SELECT_DOWN`, `MOVE_RIGHT`, `INDENT`, `CURSOR_DRAG`, and so on.
+Logs go to the Xcode console: `NAV_DOWN`, `SELECT_DOWN`, `MOVE_RIGHT`, `INDENT`, and so on.
 
 ## Samples
 
@@ -127,8 +130,8 @@ Logs go to the Xcode console: `NAV_DOWN`, `SELECT_DOWN`, `MOVE_RIGHT`, `INDENT`,
 
 ## What is in v0
 
-- Code-configured `UITextView`
-- Accessory: indent, pairs, undo, NAV, SELECT, SYM, trackpad
+- Code-configured `UITextView` on Apple's keyboard
+- Accessory: indent, pairs, undo, NAV, SELECT, SYM
 - Smart Return
 - Line gutter selection
 - Find
@@ -137,4 +140,4 @@ Logs go to the Xcode console: `NAV_DOWN`, `SELECT_DOWN`, `MOVE_RIGHT`, `INDENT`,
 
 ## Rough edges
 
-See `EXPERIMENTS.md`. Short version: accessory is tall, SYM does not replace Apple's QWERTY, word movement is not syntax-aware, and two-thumb holds can still fight UIKit.
+See `EXPERIMENTS.md`. Short version: word movement is not syntax-aware, and the corner SELECT target still needs on-device thumb time.

@@ -31,6 +31,14 @@ final class CodeTextView: UITextView {
         alwaysBounceVertical = true
         alwaysBounceHorizontal = true
         keyboardDismissMode = .interactive
+        applyInputTraits()
+        dataDetectorTypes = []
+        applyFont()
+        applyWrapping()
+    }
+
+    /// Re-apply before first responder. UIKit forgets these if they are only set in init.
+    private func applyInputTraits() {
         autocapitalizationType = .none
         autocorrectionType = .no
         spellCheckingType = .no
@@ -39,10 +47,10 @@ final class CodeTextView: UITextView {
         smartInsertDeleteType = .no
         keyboardType = .default
         keyboardAppearance = .default
-        dataDetectorTypes = []
         allowsEditingTextAttributes = false
         adjustsFontForContentSizeCategory = false
-        textContentType = nil
+        // Empty type, not nil. nil lets iOS guess from the buffer and pop an autofill bar.
+        textContentType = UITextContentType(rawValue: "")
         inputAssistantItem.leadingBarButtonGroups = []
         inputAssistantItem.trailingBarButtonGroups = []
         if #available(iOS 17.0, *) {
@@ -50,9 +58,13 @@ final class CodeTextView: UITextView {
         }
         if #available(iOS 18.0, *) {
             mathExpressionCompletionType = .no
+            writingToolsBehavior = .none
         }
-        applyFont()
-        applyWrapping()
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        applyInputTraits()
+        return super.becomeFirstResponder()
     }
 
     func applyFont() {

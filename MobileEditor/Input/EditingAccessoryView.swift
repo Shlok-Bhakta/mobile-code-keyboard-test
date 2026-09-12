@@ -2,7 +2,6 @@ import UIKit
 
 protocol EditingAccessoryDelegate: AnyObject {
     var inputMode: InputMode { get }
-    var isTrackpadSelecting: Bool { get }
     func accessoryNavDown()
     func accessoryNavUp()
     func accessorySelectDown()
@@ -29,72 +28,68 @@ protocol EditingAccessoryDelegate: AnyObject {
     func accessoryPageUp(extending: Bool)
     func accessoryPageDown(extending: Bool)
     func accessoryExpandSelection()
-    func accessoryTrackpadBegan()
-    func accessoryTrackpadChanged(dx: CGFloat, dy: CGFloat, velocity: CGPoint)
-    func accessoryTrackpadEnded()
 }
 
-final class EditingAccessoryView: UIView {
+final class EditingAccessoryView: UIInputView {
     weak var delegate: EditingAccessoryDelegate?
 
-    private let modeStrip = UILabel()
-    private let navButton = HoldButton(title: "NAV", font: UIFont.systemFont(ofSize: 16, weight: .bold))
-    private let symButton = HoldButton(title: "SYM", font: UIFont.systemFont(ofSize: 16, weight: .bold))
-    private let selectButton = HoldButton(title: "SELECT", font: UIFont.systemFont(ofSize: 14, weight: .bold))
+    var usesInternalSymbolPad = true
+    private let navPad = NavSelectPad()
+    private let symButton = HoldButton(systemImage: "number")
+    private let symbolPicker = SymbolPickerView()
     private let normalPanel = UIView()
     private let navPanel = UIView()
     private let symPanel = UIView()
     private let centerHost = UIView()
-    private let trackpad = CursorTrackpadView()
+    private var heightConstraint: NSLayoutConstraint!
+    private var navWidthConstraint: NSLayoutConstraint!
+    private var desiredHeight: CGFloat = EditingAccessoryView.compactHeight
 
-    static let preferredHeight: CGFloat = 176
+    static let compactHeight: CGFloat = 50
+    static let navHeight: CGFloat = 108
+    static let symbolHeight: CGFloat = 122
+    static let padWidth: CGFloat = 96
 
     override var intrinsicContentSize: CGSize {
-        CGSize(width: UIView.noIntrinsicMetric, height: Self.preferredHeight)
+        CGSize(width: UIView.noIntrinsicMetric, height: desiredHeight)
     }
 
-    override init(frame: CGRect) {
-        super.init(frame: CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: Self.preferredHeight))
+    override var safeAreaInsets: UIEdgeInsets { .zero }
+
+    init() {
+        super.init(frame: CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: Self.compactHeight), inputViewStyle: .default)
+        allowsSelfSizing = true
         autoresizingMask = [.flexibleWidth]
         isMultipleTouchEnabled = true
         backgroundColor = .secondarySystemBackground
 
-        let box = UILayoutGuide()
-        addLayoutGuide(box)
-
-        modeStrip.font = UIFont.monospacedSystemFont(ofSize: 11, weight: .bold)
-        modeStrip.textAlignment = .center
-        modeStrip.text = "TYPE"
-        modeStrip.textColor = .secondaryLabel
-
-        navButton.activeBackground = .systemBlue
-        navButton.idleBackground = UIColor.systemBlue.withAlphaComponent(0.22)
-        navButton.onDown = { [weak self] in self?.delegate?.accessoryNavDown() }
-        navButton.onUp = { [weak self] in self?.delegate?.accessoryNavUp() }
+        navPad.onNavDown = { [weak self] in self?.delegate?.accessoryNavDown() }
+        navPad.onNavUp = { [weak self] in self?.delegate?.accessoryNavUp() }
+        navPad.onSelectChanged = { [weak self] on in
+            if on { self?.delegate?.accessorySelectDown() }
+            else { self?.delegate?.accessorySelectUp() }
+        }
 
         symButton.activeBackground = .systemPurple
-        symButton.idleBackground = UIColor.systemPurple.withAlphaComponent(0.22)
+        symButton.idleBackground = UIColor.systemPurple.withAlphaComponent(0.28)
         symButton.onDown = { [weak self] in self?.delegate?.accessorySymDown() }
-        symButton.onUp = { [weak self] in self?.delegate?.accessorySymUp() }
-
-        selectButton.activeBackground = .systemOrange
-        selectButton.idleBackground = UIColor.systemOrange.withAlphaComponent(0.28)
-        selectButton.activeTitleColor = .black
-        selectButton.onDown = { [weak self] in self?.delegate?.accessorySelectDown() }
-        selectButton.onUp = { [weak self] in self?.delegate?.accessorySelectUp() }
+        symButton.onMoved = { [weak self] point in self?.hoverSym(at: point) }
+        symButton.onUp = { [weak self] in self?.finishSym(commit: true) }
+        symButton.onCancel = { [weak self] in self?.finishSym(commit: false) }
+        symbolPicker.onHover = { [weak self] symbol in
+            self?.symButton.setPreviewSymbol(symbol)
+        }
+        symbolPicker.onPick = { [weak self] symbol in
+            self?.delegate?.accessoryInsertText(symbol)
+            self?.symbolPicker.clearHover()
+            self?.symButton.setPreviewSymbol(nil)
+        }
 
         buildNormalPanel()
         buildNavPanel()
         buildSymPanel()
 
-        trackpad.onBegan = { [weak self] in self?.delegate?.accessoryTrackpadBegan() }
-        trackpad.onChanged = { [weak self] dx, dy, vel in
-            self?.delegate?.accessoryTrackpadChanged(dx: dx, dy: dy, velocity: vel)
-        }
-        trackpad.onEnded = { [weak self] in self?.delegate?.accessoryTrackpadEnded() }
-
-        let views = [modeStrip, navButton, centerHost, symButton, selectButton, trackpad, normalPanel, navPanel, symPanel]
-        for view in views {
+        [navPad, centerHost, symButton, normalPanel, navPanel, symPanel].forEach { view in
             view.translatesAutoresizingMaskIntoConstraints = false
             if view === normalPanel || view === navPanel || view === symPanel {
                 centerHost.addSubview(view)
@@ -103,40 +98,25 @@ final class EditingAccessoryView: UIView {
             }
         }
 
-        let height = heightAnchor.constraint(equalToConstant: Self.preferredHeight)
-        height.priority = .required
-
+        heightConstraint = heightAnchor.constraint(equalToConstant: Self.compactHeight)
+        heightConstraint.priority = .required
+        navWidthConstraint = navPad.widthAnchor.constraint(equalToConstant: Self.padWidth)
         NSLayoutConstraint.activate([
-            height,
-            modeStrip.topAnchor.constraint(equalTo: topAnchor, constant: 4),
-            modeStrip.leadingAnchor.constraint(equalTo: leadingAnchor),
-            modeStrip.trailingAnchor.constraint(equalTo: trailingAnchor),
-            modeStrip.heightAnchor.constraint(equalToConstant: 16),
+            heightConstraint,
+            navPad.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            navPad.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            navPad.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+            navWidthConstraint,
 
-            navButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
-            navButton.topAnchor.constraint(equalTo: modeStrip.bottomAnchor, constant: 4),
-            navButton.bottomAnchor.constraint(equalTo: trackpad.topAnchor, constant: -6),
-            navButton.widthAnchor.constraint(equalToConstant: 58),
+            symButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            symButton.topAnchor.constraint(equalTo: navPad.topAnchor),
+            symButton.bottomAnchor.constraint(equalTo: navPad.bottomAnchor),
+            symButton.widthAnchor.constraint(equalToConstant: 56),
 
-            symButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
-            symButton.topAnchor.constraint(equalTo: navButton.topAnchor),
-            symButton.bottomAnchor.constraint(equalTo: navButton.bottomAnchor),
-            symButton.widthAnchor.constraint(equalToConstant: 58),
-
-            selectButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
-            selectButton.topAnchor.constraint(equalTo: navButton.topAnchor),
-            selectButton.bottomAnchor.constraint(equalTo: navButton.bottomAnchor),
-            selectButton.widthAnchor.constraint(equalToConstant: 70),
-
-            centerHost.leadingAnchor.constraint(equalTo: navButton.trailingAnchor, constant: 6),
-            centerHost.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -76),
-            centerHost.topAnchor.constraint(equalTo: navButton.topAnchor),
-            centerHost.bottomAnchor.constraint(equalTo: navButton.bottomAnchor),
-
-            trackpad.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
-            trackpad.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
-            trackpad.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
-            trackpad.heightAnchor.constraint(equalToConstant: 50),
+            centerHost.leadingAnchor.constraint(equalTo: navPad.trailingAnchor, constant: 4),
+            centerHost.trailingAnchor.constraint(equalTo: symButton.leadingAnchor, constant: -4),
+            centerHost.topAnchor.constraint(equalTo: navPad.topAnchor),
+            centerHost.bottomAnchor.constraint(equalTo: navPad.bottomAnchor),
 
             normalPanel.leadingAnchor.constraint(equalTo: centerHost.leadingAnchor),
             normalPanel.trailingAnchor.constraint(equalTo: centerHost.trailingAnchor),
@@ -161,44 +141,116 @@ final class EditingAccessoryView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        syncKeyboardHeight(desiredHeight)
+    }
+
     func applyMode(_ mode: InputMode) {
-        modeStrip.text = mode.title
         switch mode {
         case .normal:
             backgroundColor = .secondarySystemBackground
-            modeStrip.textColor = .secondaryLabel
         case .navigation:
-            backgroundColor = UIColor.systemBlue.withAlphaComponent(0.18)
-            modeStrip.textColor = .systemBlue
+            backgroundColor = UIColor.systemBlue.withAlphaComponent(0.16)
         case .navigationSelecting:
-            backgroundColor = UIColor.systemOrange.withAlphaComponent(0.22)
-            modeStrip.textColor = .systemOrange
+            backgroundColor = UIColor.systemOrange.withAlphaComponent(0.20)
         case .symbols:
-            backgroundColor = UIColor.systemPurple.withAlphaComponent(0.18)
-            modeStrip.textColor = .systemPurple
+            backgroundColor = UIColor.systemPurple.withAlphaComponent(0.16)
         }
 
         let nav = mode.isNavigating
         let sym = mode == .symbols
-        normalPanel.isHidden = nav || sym
+        normalPanel.isHidden = nav || (sym && usesInternalSymbolPad)
         navPanel.isHidden = !nav
-        symPanel.isHidden = !sym
-        selectButton.isHidden = !nav
-        selectButton.isHeld = mode.isSelecting
-        navButton.isHeld = nav
+        symPanel.isHidden = !(sym && usesInternalSymbolPad)
+        navPad.isNavHeld = nav
+        navPad.isSelecting = mode.isSelecting
+        navPad.isUserInteractionEnabled = !sym
+        navWidthConstraint.constant = (sym && usesInternalSymbolPad) ? 0 : Self.padWidth
+        navPad.alpha = (sym && usesInternalSymbolPad) ? 0 : 1
         symButton.isHeld = sym
-        symButton.isHidden = nav
-        trackpad.alpha = 1
+        if !sym {
+            symbolPicker.clearHover()
+            symButton.setPreviewSymbol(nil)
+        }
+        let height: CGFloat
+        if sym && usesInternalSymbolPad {
+            height = Self.symbolHeight
+        } else if nav {
+            height = Self.navHeight
+        } else {
+            height = Self.compactHeight
+        }
+        setHeight(height)
+    }
+
+    private func hoverSym(at point: CGPoint) {
+        guard !symPanel.isHidden else { return }
+        if symButton.bounds.insetBy(dx: 2, dy: 2).contains(point) {
+            symbolPicker.clearHover()
+            symButton.setPreviewSymbol(nil)
+            return
+        }
+        symbolPicker.hover(at: symButton.convert(point, to: symbolPicker))
+    }
+
+    private func finishSym(commit: Bool) {
+        if commit, let symbol = symbolPicker.commit() {
+            delegate?.accessoryInsertText(symbol)
+        }
+        symbolPicker.clearHover()
+        symButton.setPreviewSymbol(nil)
+        delegate?.accessorySymUp()
+    }
+
+    private func setHeight(_ height: CGFloat) {
+        desiredHeight = height
+        heightConstraint.constant = height
+        invalidateIntrinsicContentSize()
+        UIView.animate(
+            withDuration: 0.32,
+            delay: 0,
+            usingSpringWithDamping: 0.86,
+            initialSpringVelocity: 0.45,
+            options: [.allowUserInteraction, .beginFromCurrentState]
+        ) {
+            self.syncKeyboardHeight(height)
+            self.window?.layoutIfNeeded()
+        }
+    }
+
+    /// iOS installs its own height lock when the accessory attaches. Update that
+    /// too or the bar stays at the compact frame forever.
+    private func syncKeyboardHeight(_ height: CGFloat) {
+        allowsSelfSizing = true
+        bounds.size.height = height
+        var next = frame
+        next.size.height = height
+        frame = next
+        for constraint in constraints where constraint.firstAttribute == .height {
+            constraint.constant = height
+        }
+        if let superview {
+            for constraint in superview.constraints where constraint.firstAttribute == .height {
+                let first = constraint.firstItem as? UIView
+                let second = constraint.secondItem as? UIView
+                if first === self || first === superview || second === self {
+                    constraint.constant = height
+                }
+            }
+        }
+        setNeedsLayout()
+        superview?.setNeedsLayout()
     }
 
     private func buildNormalPanel() {
-        let tab = KeyButton(title: "TAB")
-        tab.enableSwipeAndLongPress()
-        tab.onTap = { [weak self] in self?.delegate?.accessoryIndent() }
-        tab.onSwipeLeft = { [weak self] in self?.delegate?.accessoryOutdent() }
-        tab.onLongPress = { [weak self] in self?.delegate?.accessoryOutdent() }
+        let indent = KeyButton(systemImage: "increase.indent")
+        indent.enableSwipeAndLongPress()
+        indent.onTap = { [weak self] in self?.delegate?.accessoryIndent() }
+        indent.onSwipeLeft = { [weak self] in self?.delegate?.accessoryOutdent() }
+        indent.onLongPress = { [weak self] in self?.delegate?.accessoryOutdent() }
 
-        let outdent = KeyButton(title: "⇤")
+        let outdent = KeyButton(systemImage: "decrease.indent")
         outdent.onTap = { [weak self] in self?.delegate?.accessoryOutdent() }
 
         let pairs: [(String, String, String)] = [
@@ -209,40 +261,27 @@ final class EditingAccessoryView: UIView {
             ("''", "'", "'"),
             ("``", "`", "`"),
         ]
-        var pairButtons: [UIView] = []
+        var buttons: [UIView] = [indent, outdent]
         for (title, open, close) in pairs {
             let button = KeyButton(title: title, mono: true)
             button.onTap = { [weak self] in self?.delegate?.accessoryInsertPair(open: open, close: close) }
-            pairButtons.append(button)
+            buttons.append(button)
         }
-
-        let singles = ["=", ";", ".", ","]
-        var singleButtons: [UIView] = []
-        for s in singles {
-            let button = KeyButton(title: s, mono: true)
-            button.onTap = { [weak self] in self?.delegate?.accessoryInsertText(s) }
-            singleButtons.append(button)
-        }
-
-        let undo = KeyButton(title: "↶")
+        let undo = KeyButton(systemImage: "arrow.uturn.backward")
         undo.onTap = { [weak self] in self?.delegate?.accessoryUndo() }
-        let redo = KeyButton(title: "↷")
+        let redo = KeyButton(systemImage: "arrow.uturn.forward")
         redo.onTap = { [weak self] in self?.delegate?.accessoryRedo() }
+        buttons.append(contentsOf: [undo, redo])
 
-        let row1 = row([tab, outdent] + pairButtons)
-        let row2 = row(singleButtons + [undo, redo])
-        let stack = UIStackView(arrangedSubviews: [row1, row2])
-        stack.axis = .vertical
-        stack.spacing = 4
-        stack.distribution = .fillEqually
+        let stack = row(buttons)
         stack.translatesAutoresizingMaskIntoConstraints = false
         normalPanel.addSubview(stack)
         pin(stack, to: normalPanel)
     }
 
     private func buildNavPanel() {
-        func nav(_ title: String, _ action: @escaping (EditingAccessoryDelegate, Bool) -> Void) -> KeyButton {
-            let button = KeyButton(title: title)
+        func nav(_ image: String, _ action: @escaping (EditingAccessoryDelegate, Bool) -> Void) -> KeyButton {
+            let button = KeyButton(systemImage: image, pointSize: 18)
             button.onTap = { [weak self] in
                 guard let self, let delegate = self.delegate else { return }
                 action(delegate, delegate.inputMode.isSelecting)
@@ -251,37 +290,25 @@ final class EditingAccessoryView: UIView {
         }
 
         let r1 = row([
-            nav("W←") { $0.accessoryMoveWordLeft(extending: $1) },
-            nav("↑") { $0.accessoryMoveUp(extending: $1) },
-            nav("W→") { $0.accessoryMoveWordRight(extending: $1) },
-            nav("HOME") { $0.accessoryHome(extending: $1) },
-            nav("END") { $0.accessoryEnd(extending: $1) },
-        ])
+            nav("chevron.left.2") { $0.accessoryMoveWordLeft(extending: $1) },
+            nav("chevron.up") { $0.accessoryMoveUp(extending: $1) },
+            nav("chevron.right.2") { $0.accessoryMoveWordRight(extending: $1) },
+            nav("arrow.left.to.line") { $0.accessoryHome(extending: $1) },
+            nav("arrow.right.to.line") { $0.accessoryEnd(extending: $1) },
+            nav("doc.on.doc") { delegate, _ in delegate.accessoryCopy() },
+        ], spacing: 5)
         let r2 = row([
-            nav("←") { $0.accessoryMoveLeft(extending: $1) },
-            nav("↓") { $0.accessoryMoveDown(extending: $1) },
-            nav("→") { $0.accessoryMoveRight(extending: $1) },
-            nav("PG↑") { $0.accessoryPageUp(extending: $1) },
-            nav("PG↓") { $0.accessoryPageDown(extending: $1) },
-        ])
+            nav("chevron.left") { $0.accessoryMoveLeft(extending: $1) },
+            nav("chevron.down") { $0.accessoryMoveDown(extending: $1) },
+            nav("chevron.right") { $0.accessoryMoveRight(extending: $1) },
+            nav("scissors") { delegate, _ in delegate.accessoryCut() },
+            nav("doc.on.clipboard") { delegate, _ in delegate.accessoryPaste() },
+            nav("arrow.up.left.and.arrow.down.right") { delegate, _ in delegate.accessoryExpandSelection() },
+        ], spacing: 5)
 
-        let undo = KeyButton(title: "UNDO")
-        undo.onTap = { [weak self] in self?.delegate?.accessoryUndo() }
-        let redo = KeyButton(title: "REDO")
-        redo.onTap = { [weak self] in self?.delegate?.accessoryRedo() }
-        let copy = KeyButton(title: "COPY")
-        copy.onTap = { [weak self] in self?.delegate?.accessoryCopy() }
-        let cut = KeyButton(title: "CUT")
-        cut.onTap = { [weak self] in self?.delegate?.accessoryCut() }
-        let paste = KeyButton(title: "PASTE")
-        paste.onTap = { [weak self] in self?.delegate?.accessoryPaste() }
-        let expand = KeyButton(title: "EXPAND")
-        expand.onTap = { [weak self] in self?.delegate?.accessoryExpandSelection() }
-
-        let r3 = row([undo, redo, copy, cut, paste, expand])
-        let stack = UIStackView(arrangedSubviews: [r1, r2, r3])
+        let stack = UIStackView(arrangedSubviews: [r1, r2])
         stack.axis = .vertical
-        stack.spacing = 4
+        stack.spacing = 6
         stack.distribution = .fillEqually
         stack.translatesAutoresizingMaskIntoConstraints = false
         navPanel.addSubview(stack)
@@ -289,35 +316,15 @@ final class EditingAccessoryView: UIView {
     }
 
     private func buildSymPanel() {
-        let rows: [[String]] = [
-            ["!", "@", "#", "$", "%", "^", "&", "*", "|"],
-            ["(", ")", "{", "}", "[", "]", "<", ">"],
-            ["=", "+", "-", "_", "/", "\\", "~", "."],
-            ["'", "\"", "`", ":", ";", "?"],
-        ]
-        var stacks: [UIView] = []
-        for symbols in rows {
-            var buttons: [UIView] = []
-            for s in symbols {
-                let button = KeyButton(title: s, mono: true)
-                button.onTap = { [weak self] in self?.delegate?.accessoryInsertText(s) }
-                buttons.append(button)
-            }
-            stacks.append(row(buttons))
-        }
-        let stack = UIStackView(arrangedSubviews: stacks)
-        stack.axis = .vertical
-        stack.spacing = 3
-        stack.distribution = .fillEqually
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        symPanel.addSubview(stack)
-        pin(stack, to: symPanel)
+        symbolPicker.translatesAutoresizingMaskIntoConstraints = false
+        symPanel.addSubview(symbolPicker)
+        pin(symbolPicker, to: symPanel)
     }
 
-    private func row(_ views: [UIView]) -> UIStackView {
+    private func row(_ views: [UIView], spacing: CGFloat = 3) -> UIStackView {
         let stack = UIStackView(arrangedSubviews: views)
         stack.axis = .horizontal
-        stack.spacing = 3
+        stack.spacing = spacing
         stack.distribution = .fillEqually
         return stack
     }

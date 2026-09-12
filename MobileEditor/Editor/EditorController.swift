@@ -5,8 +5,6 @@ final class EditorController {
 
     private(set) var selectionAnchor: Int = 0
     private var preferredColumnX: CGFloat?
-    private var trackpadAccX: CGFloat = 0
-    private var trackpadAccY: CGFloat = 0
     private var lastWordHapticAt = Date.distantPast
 
     private var nsText: NSString {
@@ -262,66 +260,6 @@ final class EditorController {
             selectionAnchor = found.location
             tv.scrollRangeToVisible(found)
         }
-    }
-
-    func trackpadBegan() {
-        trackpadAccX = 0
-        trackpadAccY = 0
-        EditorLog.event("CURSOR_DRAG", "begin")
-    }
-
-    func trackpadChanged(dx: CGFloat, dy: CGFloat, velocity: CGPoint, extending: Bool) {
-        trackpadAccX += dx
-        trackpadAccY += dy
-        let h = CGFloat(settings.horizontalThreshold)
-        let v = CGFloat(settings.verticalThreshold)
-        guard h > 0, v > 0 else { return }
-
-        var step = 1
-        var wordMode = false
-        if settings.accelerationEnabled {
-            let speed = hypot(velocity.x, velocity.y)
-            if speed >= settings.fastVelocity {
-                wordMode = true
-            } else if speed >= settings.mediumVelocity {
-                step = 2
-            }
-        }
-
-        if wordMode {
-            while trackpadAccX >= h {
-                moveWordRight(extending: extending)
-                trackpadAccX -= h
-            }
-            while trackpadAccX <= -h {
-                moveWordLeft(extending: extending)
-                trackpadAccX += h
-            }
-        } else {
-            while trackpadAccX >= h {
-                for _ in 0..<step { moveByCharacters(1, extending: extending) }
-                trackpadAccX -= h
-            }
-            while trackpadAccX <= -h {
-                for _ in 0..<step { moveByCharacters(-1, extending: extending) }
-                trackpadAccX += h
-            }
-        }
-
-        while trackpadAccY >= v {
-            moveVertically(1, extending: extending)
-            trackpadAccY -= v
-        }
-        while trackpadAccY <= -v {
-            moveVertically(-1, extending: extending)
-            trackpadAccY += v
-        }
-    }
-
-    func trackpadEnded() {
-        trackpadAccX = 0
-        trackpadAccY = 0
-        EditorLog.event("CURSOR_DRAG", "end")
     }
 
     func clearPreferredColumn() {

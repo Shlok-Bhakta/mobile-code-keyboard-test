@@ -24,4 +24,9 @@ enum EditorHaptics {
         guard EditorSettings.shared.hapticsEnabled else { return }
         selection.selectionChanged()
     }
+
+    static func hoverTick() {
+        guard EditorSettings.shared.hapticsEnabled else { return }
+        selection.selectionChanged()
+    }
 }

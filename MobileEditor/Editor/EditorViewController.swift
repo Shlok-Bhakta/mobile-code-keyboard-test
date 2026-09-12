@@ -17,10 +17,6 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
     private var symHeld = false
     private(set) var inputMode: InputMode = .normal
 
-    var isTrackpadSelecting: Bool {
-        inputMode.isSelecting || (inputMode.isNavigating && EditorSettings.shared.trackpadSelectWithNav)
-    }
-
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
@@ -28,8 +24,10 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
         textView.controller = controller
         textView.delegate = self
         textView.onFind = { [weak self] in self?.showFind(true) }
+        textView.inputView = nil
         textView.inputAccessoryView = accessory
         accessory.delegate = self
+        accessory.usesInternalSymbolPad = true
 
         gutter.textView = textView
         gutter.onSelectLines = { [weak self] from, to in
@@ -49,11 +47,15 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
         loadDocument()
         observeLifecycle()
         EditorHaptics.prepare()
+        textView.becomeFirstResponder()
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        textView.inputView = nil
+        textView.inputAccessoryView = accessory
         textView.becomeFirstResponder()
+        textView.reloadInputViews()
     }
 
     override func viewDidLayoutSubviews() {
@@ -76,7 +78,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
             chrome.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             chrome.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             chrome.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            chrome.heightAnchor.constraint(equalToConstant: 36),
+            chrome.heightAnchor.constraint(equalToConstant: 28),
 
             findBar.topAnchor.constraint(equalTo: chrome.bottomAnchor),
             findBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -102,9 +104,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
     private func buildChrome() {
         chrome.backgroundColor = .systemBackground
 
-        let samples = UIButton(type: .system)
-        samples.setTitle("Samples", for: .normal)
-        samples.titleLabel?.font = UIFont.systemFont(ofSize: 15, weight: .semibold)
+        let samples = iconButton("doc.text")
         var children: [UIMenuElement] = SampleDocuments.all.map { sample in
             UIAction(title: sample.title) { [weak self] _ in
                 self?.loadSample(sample.text)
@@ -113,28 +113,32 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
         samples.menu = UIMenu(children: children)
         samples.showsMenuAsPrimaryAction = true
 
-        let find = UIButton(type: .system)
-        find.setTitle("Find", for: .normal)
-        find.titleLabel?.font = UIFont.systemFont(ofSize: 15, weight: .semibold)
+        let find = iconButton("magnifyingglass")
         find.addTarget(self, action: #selector(toggleFind), for: .touchUpInside)
 
-        let tune = UIButton(type: .system)
-        tune.setTitle("Tune", for: .normal)
-        tune.titleLabel?.font = UIFont.systemFont(ofSize: 15, weight: .semibold)
+        let tune = iconButton("slider.horizontal.3")
         tune.addTarget(self, action: #selector(openSettings), for: .touchUpInside)
 
         let stack = UIStackView(arrangedSubviews: [samples, UIView(), find, tune])
         stack.axis = .horizontal
-        stack.spacing = 16
+        stack.spacing = 18
         stack.alignment = .center
         stack.translatesAutoresizingMaskIntoConstraints = false
         chrome.addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: chrome.leadingAnchor, constant: 12),
-            stack.trailingAnchor.constraint(equalTo: chrome.trailingAnchor, constant: -12),
+            stack.leadingAnchor.constraint(equalTo: chrome.leadingAnchor, constant: 10),
+            stack.trailingAnchor.constraint(equalTo: chrome.trailingAnchor, constant: -10),
             stack.topAnchor.constraint(equalTo: chrome.topAnchor),
             stack.bottomAnchor.constraint(equalTo: chrome.bottomAnchor),
         ])
+    }
+
+    private func iconButton(_ system: String) -> UIButton {
+        let button = UIButton(type: .system)
+        let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
+        button.setImage(UIImage(systemName: system, withConfiguration: cfg), for: .normal)
+        button.tintColor = .label
+        return button
     }
 
     private func loadDocument() {
@@ -175,7 +179,6 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
         selectHeld = false
         symHeld = false
         setMode(.normal)
-        accessory.applyMode(.normal)
     }
 
     private func persistSoon() {
@@ -379,11 +382,6 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
     func accessoryPageDown(extending: Bool) { controller.pageDown(extending: extending) }
     func accessoryExpandSelection() { controller.expandSelection() }
 
-    func accessoryTrackpadBegan() { controller.trackpadBegan() }
-    func accessoryTrackpadChanged(dx: CGFloat, dy: CGFloat, velocity: CGPoint) {
-        controller.trackpadChanged(dx: dx, dy: dy, velocity: velocity, extending: isTrackpadSelecting)
-    }
-    func accessoryTrackpadEnded() { controller.trackpadEnded() }
 }
 
 final class FindBar: UIView, UITextFieldDelegate {
@@ -403,19 +401,23 @@ final class FindBar: UIView, UITextFieldDelegate {
         field.spellCheckingType = .no
         field.smartQuotesType = .no
         field.smartDashesType = .no
+        field.textContentType = UITextContentType(rawValue: "")
+        if #available(iOS 17.0, *) {
+            field.inlinePredictionType = .no
+        }
         field.font = UIFont.monospacedSystemFont(ofSize: 14, weight: .regular)
         field.returnKeyType = .search
         field.delegate = self
         field.addTarget(self, action: #selector(goNext), for: .primaryActionTriggered)
 
         let prev = UIButton(type: .system)
-        prev.setTitle("◀", for: .normal)
+        prev.setImage(UIImage(systemName: "chevron.left"), for: .normal)
         prev.addTarget(self, action: #selector(goPrev), for: .touchUpInside)
         let next = UIButton(type: .system)
-        next.setTitle("▶", for: .normal)
+        next.setImage(UIImage(systemName: "chevron.right"), for: .normal)
         next.addTarget(self, action: #selector(goNext), for: .touchUpInside)
         let close = UIButton(type: .system)
-        close.setTitle("Done", for: .normal)
+        close.setImage(UIImage(systemName: "xmark"), for: .normal)
         close.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
 
         let stack = UIStackView(arrangedSubviews: [field, prev, next, close])

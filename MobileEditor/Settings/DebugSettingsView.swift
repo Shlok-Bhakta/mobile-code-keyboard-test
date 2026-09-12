@@ -1,18 +1,12 @@
 import SwiftUI
 
 struct DebugSettingsView: View {
-    @State private var horizontal = EditorSettings.shared.horizontalThreshold
-    @State private var vertical = EditorSettings.shared.verticalThreshold
     @State private var delay = EditorSettings.shared.longPressDelay
     @State private var haptics = EditorSettings.shared.hapticsEnabled
     @State private var indent = Double(EditorSettings.shared.indentWidth)
     @State private var wrap = EditorSettings.shared.lineWrap
     @State private var navMomentary = EditorSettings.shared.navMomentary
     @State private var symMomentary = EditorSettings.shared.symMomentary
-    @State private var trackpadSelect = EditorSettings.shared.trackpadSelectWithNav
-    @State private var accel = EditorSettings.shared.accelerationEnabled
-    @State private var medium = EditorSettings.shared.mediumVelocity
-    @State private var fast = EditorSettings.shared.fastVelocity
     @State private var fontSize = EditorSettings.shared.fontSize
     @State private var useTabs = EditorSettings.shared.useTabs
 
@@ -22,24 +16,6 @@ struct DebugSettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Trackpad") {
-                    stepper("Horizontal pt/char", value: $horizontal, range: 6...24, step: 1) {
-                        EditorSettings.shared.horizontalThreshold = horizontal
-                    }
-                    stepper("Vertical pt/line", value: $vertical, range: 12...48, step: 2) {
-                        EditorSettings.shared.verticalThreshold = vertical
-                    }
-                    Toggle("Acceleration", isOn: $accel)
-                        .onChange(of: accel) { _, new in EditorSettings.shared.accelerationEnabled = new }
-                    stepper("Medium velocity", value: $medium, range: 200...800, step: 50) {
-                        EditorSettings.shared.mediumVelocity = medium
-                    }
-                    stepper("Fast velocity (word)", value: $fast, range: 400...1600, step: 50) {
-                        EditorSettings.shared.fastVelocity = fast
-                    }
-                    Toggle("NAV + trackpad selects", isOn: $trackpadSelect)
-                        .onChange(of: trackpadSelect) { _, new in EditorSettings.shared.trackpadSelectWithNav = new }
-                }
                 Section("Modes") {
                     Toggle("NAV momentary", isOn: $navMomentary)
                         .onChange(of: navMomentary) { _, new in EditorSettings.shared.navMomentary = new }
