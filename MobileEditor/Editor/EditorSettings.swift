@@ -14,6 +14,7 @@ final class EditorSettings {
         static let navMomentary = "editor.navMomentary"
         static let symMomentary = "editor.symMomentary"
         static let fontSize = "editor.fontSize"
+        static let runLanguageId = "editor.runLanguageId"
     }
 
     private init() {
@@ -26,6 +27,7 @@ final class EditorSettings {
             Key.navMomentary: true,
             Key.symMomentary: true,
             Key.fontSize: 15.0,
+            Key.runLanguageId: RunLanguage.python.rawValue,
         ])
     }
 
@@ -67,6 +69,14 @@ final class EditorSettings {
     var fontSize: Double {
         get { stored(Key.fontSize, fallback: 15) }
         set { defaults.set(newValue, forKey: Key.fontSize) }
+    }
+
+    var runLanguage: RunLanguage {
+        get {
+            guard let id = defaults.string(forKey: Key.runLanguageId) else { return .python }
+            return RunLanguage(rawValue: id) ?? .python
+        }
+        set { defaults.set(newValue.rawValue, forKey: Key.runLanguageId) }
     }
 
     var indentString: String {

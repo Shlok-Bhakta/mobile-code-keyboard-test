@@ -8,8 +8,11 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
     private let accessory = EditingAccessoryView()
     private let chrome = UIView()
     private let findBar = FindBar()
+    private let langTag = UILabel()
+    private var runButton: UIButton?
     private var findHeight: NSLayoutConstraint?
     private var saveWork: DispatchWorkItem?
+    private var highlightWork: DispatchWorkItem?
     private var navTimer: Timer?
     private var symTimer: Timer?
     private var navHeld = false
@@ -24,6 +27,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
         textView.controller = controller
         textView.delegate = self
         textView.onFind = { [weak self] in self?.showFind(true) }
+        textView.onRun = { [weak self] in self?.runTapped() }
         textView.inputView = nil
         textView.inputAccessoryView = accessory
         accessory.delegate = self
@@ -45,9 +49,11 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
         buildChrome()
         layoutParts()
         loadDocument()
+        updateRunChrome()
         observeLifecycle()
         EditorHaptics.prepare()
         textView.becomeFirstResponder()
+        highlightSoon()
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -107,11 +113,18 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
         let samples = iconButton("doc.text")
         var children: [UIMenuElement] = SampleDocuments.all.map { sample in
             UIAction(title: sample.title) { [weak self] _ in
-                self?.loadSample(sample.text)
+                self?.loadSample(sample)
             }
         }
         samples.menu = UIMenu(children: children)
         samples.showsMenuAsPrimaryAction = true
+
+        langTag.font = UIFont.monospacedSystemFont(ofSize: 12, weight: .medium)
+        langTag.textColor = .secondaryLabel
+
+        let run = iconButton("play.fill")
+        run.addTarget(self, action: #selector(runTapped), for: .touchUpInside)
+        runButton = run
 
         let find = iconButton("magnifyingglass")
         find.addTarget(self, action: #selector(toggleFind), for: .touchUpInside)
@@ -119,7 +132,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
         let tune = iconButton("slider.horizontal.3")
         tune.addTarget(self, action: #selector(openSettings), for: .touchUpInside)
 
-        let stack = UIStackView(arrangedSubviews: [samples, UIView(), find, tune])
+        let stack = UIStackView(arrangedSubviews: [samples, langTag, UIView(), run, find, tune])
         stack.axis = .horizontal
         stack.spacing = 18
         stack.alignment = .center
@@ -145,7 +158,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
         if let saved = DocumentStore.load() {
             textView.text = saved
         } else {
-            textView.text = SampleDocuments.rust.text
+            textView.text = SampleDocuments.python.text
         }
         textView.applyFont()
         textView.applyWrapping()
@@ -153,9 +166,10 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
         gutter.reload()
     }
 
-    private func loadSample(_ text: String) {
-        textView.text = text
+    private func loadSample(_ sample: SampleDocuments.Sample) {
+        textView.text = sample.text
         textView.selectedRange = NSRange(location: 0, length: 0)
+        setLanguage(sample.language)
         persistSoon()
         gutter.reload()
     }
@@ -210,6 +224,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
                 self?.textView.applyFont()
                 self?.textView.applyWrapping()
                 self?.gutter.reload()
+                self?.updateRunChrome()
+                self?.highlightSoon()
             },
             onDismiss: { [weak self] in
                 self?.dismiss(animated: true)
@@ -222,6 +238,57 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
     private func setMode(_ mode: InputMode) {
         inputMode = mode
         accessory.applyMode(mode)
+    }
+
+    // MARK: Run
+
+    private func setLanguage(_ language: RunLanguage) {
+        EditorSettings.shared.runLanguage = language
+        updateRunChrome()
+        highlightSoon()
+    }
+
+    private func updateRunChrome() {
+        let language = EditorSettings.shared.runLanguage
+        langTag.text = language.tag
+        runButton?.tintColor = language.isRunnable ? .label : .tertiaryLabel
+    }
+
+    @objc private func runTapped() {
+        EditorLog.event("RUN")
+        let language = EditorSettings.shared.runLanguage
+        guard language.isRunnable else {
+            let session = RunSession.info(language: language, message: language.notRunnableMessage)
+            presentConsole(session)
+            return
+        }
+        let session = RunSession(code: textView.text ?? "", language: language)
+        presentConsole(session)
+        session.start()
+    }
+
+    private func presentConsole(_ session: RunSession) {
+        let host = UIHostingController(rootView: RunConsoleView(
+            session: session,
+            onDismiss: { [weak self] in self?.dismiss(animated: true) }
+        ))
+        present(host, animated: true)
+    }
+
+    // MARK: Highlight
+
+    private func highlightSoon() {
+        highlightWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            SyntaxHighlighter.apply(
+                to: self.textView,
+                language: EditorSettings.shared.runLanguage,
+                fontSize: CGFloat(EditorSettings.shared.fontSize)
+            )
+        }
+        highlightWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
     }
 
     private func enterNav() {
@@ -257,6 +324,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
         persistSoon()
         gutter.reload()
         controller.clearPreferredColumn()
+        highlightSoon()
     }
 
     func textViewDidChangeSelection(_ textView: UITextView) {

@@ -25,6 +25,11 @@ enum EditorHaptics {
         selection.selectionChanged()
     }
 
+    static func runFinished(success: Bool) {
+        guard EditorSettings.shared.hapticsEnabled else { return }
+        notify.notificationOccurred(success ? .success : .error)
+    }
+
     static func hoverTick() {
         guard EditorSettings.shared.hapticsEnabled else { return }
         selection.selectionChanged()

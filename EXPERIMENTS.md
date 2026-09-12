@@ -35,3 +35,11 @@ First non-whitespace, then column 0.
 ## Unsigned IPA
 
 The Xcode project builds with signing disabled so you can sign on device.
+
+## Remote run
+
+Run posts the buffer to Compiler Explorer's execution API (pinned: `python313`, `r1980`). Piston was the first pick but its public instance went whitelist-only in early 2026; Wandbox's sandbox was erroring the same week. TypeScript has no working free runner (Godbolt's TS is a native compiler without console), so the TS sample is highlighting-only and Run says so instead of failing. Needs network; offline gives a clean error, not a hang.
+
+## Regex highlighting
+
+Keywords, strings, comments, numbers, plus per-language types and builtins, computed off-main and applied as attribute-only edits with undo registration off. Stale passes (typed during the 0.35 s debounce) are dropped by comparing against a snapshot. Rust lifetimes are deliberately uncolored: a loose single-quote pattern would eat code up to the next apostrophe.

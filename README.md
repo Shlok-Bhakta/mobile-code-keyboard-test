@@ -10,7 +10,7 @@ Not an IDE. No git, files, LSP, or cloud. Open it and type.
 | --- | --- |
 | ![Editor in dark mode](docs/screenshots/01-editor-dark.png) | ![Editor in light mode](docs/screenshots/02-editor-light.png) |
 
-Rust sample, line-number gutter, TYPE bar with NAV pad / pairs / undo / SYM key over Apple's keyboard.
+Python FizzBuzz with syntax highlighting, `py` language tag, and the Run button in the top chrome.
 
 ## Install on iPhone
 
@@ -110,6 +110,19 @@ Keep your thumb down. The bar springs open and the symbol grid takes the middle.
 **Hardware keyboard**
 
 - Cmd-Z / Shift-Z, C, X, V, A, F.
+- Cmd-R runs the buffer.
+
+## Run
+
+The ▶ button in the top chrome runs the whole buffer and shows output in a console sheet: green dot + `Exit 0`, red dot otherwise, spinner while it works. Needs a network connection.
+
+- Runs are executed remotely by Compiler Explorer (pinned compilers: CPython 3.13, rustc 1.98). No keys, no backend of ours.
+- The `py` / `rs` / `ts` / `md` tag shows the active language. Picking a sample sets it; Tune can override it. It persists in UserDefaults.
+- TypeScript and Markdown don't run in this build — the console says so instead of failing silently.
+
+## Highlighting
+
+Regex-based, per language: keywords, strings, comments, numbers, plus common types and builtins. Applied ~0.35 s after typing stops, attribute-only, so undo history and the caret are untouched. Colors are dynamic system colors, so light/dark just works. The bar itself stays language-blind.
 
 ## Tune
 
@@ -126,7 +139,7 @@ Logs go to the Xcode console: `NAV_DOWN`, `SELECT_DOWN`, `MOVE_RIGHT`, `INDENT`,
 
 ## Samples
 
-`Samples` menu: Rust, TypeScript, Python, Markdown. Replaces the buffer. Current scratch is what autosaves.
+`Samples` menu: Python, TypeScript, Rust, Markdown. The code samples are FizzBuzz problem packs — a stub plus visible tests that fail until you type the fix. Python and Rust run; TypeScript is highlighting-only for now. Markdown is the prose scratch. Replacing the buffer replaces what autosaves.
 
 ## What is in v0
 
@@ -137,6 +150,8 @@ Logs go to the Xcode console: `NAV_DOWN`, `SELECT_DOWN`, `MOVE_RIGHT`, `INDENT`,
 - Find
 - Debug panel
 - Light / dark, monospace, almost no chrome
+- Run button + console (Python, Rust via Compiler Explorer)
+- Syntax highlighting (Python, TypeScript, Rust, Markdown)
 
 ## Rough edges
 

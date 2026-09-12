@@ -117,6 +117,7 @@ final class CodeTextView: UITextView {
             UIKeyCommand(input: "v", modifierFlags: .command, action: #selector(handlePaste)),
             UIKeyCommand(input: "a", modifierFlags: .command, action: #selector(handleSelectAll)),
             UIKeyCommand(input: "f", modifierFlags: .command, action: #selector(handleFind)),
+            UIKeyCommand(input: "r", modifierFlags: .command, action: #selector(handleRun)),
         ]
     }
 
@@ -131,4 +132,7 @@ final class CodeTextView: UITextView {
 
     var onFind: (() -> Void)?
     @objc private func handleFind() { onFind?() }
+
+    var onRun: (() -> Void)?
+    @objc private func handleRun() { onRun?() }
 }
