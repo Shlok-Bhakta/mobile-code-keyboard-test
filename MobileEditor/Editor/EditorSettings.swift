@@ -15,6 +15,11 @@ final class EditorSettings {
         static let symMomentary = "editor.symMomentary"
         static let fontSize = "editor.fontSize"
         static let runLanguageId = "editor.runLanguageId"
+        static let experimentCodeKeys = "editor.experimentCodeKeys"
+        static let experimentCompactControls = "editor.experimentCompactControls"
+        static let experimentFixedBar = "editor.experimentFixedBar"
+        static let experimentOperatorSwipes = "editor.experimentOperatorSwipes"
+        static let experimentFlashJump = "editor.experimentFlashJump"
     }
 
     private init() {
@@ -28,6 +33,11 @@ final class EditorSettings {
             Key.symMomentary: true,
             Key.fontSize: 15.0,
             Key.runLanguageId: RunLanguage.python.rawValue,
+            Key.experimentCodeKeys: true,
+            Key.experimentCompactControls: true,
+            Key.experimentFixedBar: true,
+            Key.experimentOperatorSwipes: true,
+            Key.experimentFlashJump: true,
         ])
     }
 
@@ -77,6 +87,31 @@ final class EditorSettings {
             return RunLanguage(rawValue: id) ?? .python
         }
         set { defaults.set(newValue.rawValue, forKey: Key.runLanguageId) }
+    }
+
+    var experimentCodeKeys: Bool {
+        get { defaults.bool(forKey: Key.experimentCodeKeys) }
+        set { defaults.set(newValue, forKey: Key.experimentCodeKeys) }
+    }
+
+    var experimentCompactControls: Bool {
+        get { defaults.bool(forKey: Key.experimentCompactControls) }
+        set { defaults.set(newValue, forKey: Key.experimentCompactControls) }
+    }
+
+    var experimentFixedBar: Bool {
+        get { defaults.bool(forKey: Key.experimentFixedBar) }
+        set { defaults.set(newValue, forKey: Key.experimentFixedBar) }
+    }
+
+    var experimentOperatorSwipes: Bool {
+        get { defaults.bool(forKey: Key.experimentOperatorSwipes) }
+        set { defaults.set(newValue, forKey: Key.experimentOperatorSwipes) }
+    }
+
+    var experimentFlashJump: Bool {
+        get { defaults.bool(forKey: Key.experimentFlashJump) }
+        set { defaults.set(newValue, forKey: Key.experimentFlashJump) }
     }
 
     var indentString: String {

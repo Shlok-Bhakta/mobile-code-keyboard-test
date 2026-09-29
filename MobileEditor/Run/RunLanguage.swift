@@ -1,7 +1,7 @@
 import Foundation
 
-/// Language of the current buffer. Drives the runner and the highlighter.
-/// The editing bar itself stays language-blind.
+/// Language of the current buffer. Drives the runner, highlighter, and the
+/// context key in the experimental editing bar.
 enum RunLanguage: String, CaseIterable, Identifiable {
     case python
     case typescript

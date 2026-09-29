@@ -37,13 +37,18 @@ final class EditingAccessoryView: UIInputView {
     private let navPad = NavSelectPad()
     private let symButton = HoldButton(systemImage: "number")
     private let symbolPicker = SymbolPickerView()
+    private let compactSymbolPicker = SymbolPickerView(rows: [[",", "_", "/", "-", ";", "'", "\""]])
     private let normalPanel = UIView()
     private let navPanel = UIView()
     private let symPanel = UIView()
+    private let expandedNavPanel = UIView()
+    private let compactNavPanel = UIView()
     private let centerHost = UIView()
     private var heightConstraint: NSLayoutConstraint!
     private var navWidthConstraint: NSLayoutConstraint!
+    private var symWidthConstraint: NSLayoutConstraint!
     private var desiredHeight: CGFloat = EditingAccessoryView.compactHeight
+    private var language: RunLanguage = .python
 
     static let compactHeight: CGFloat = 50
     static let navHeight: CGFloat = 108
@@ -84,6 +89,14 @@ final class EditingAccessoryView: UIInputView {
             self?.symbolPicker.clearHover()
             self?.symButton.setPreviewSymbol(nil)
         }
+        compactSymbolPicker.onHover = { [weak self] symbol in
+            self?.symButton.setPreviewSymbol(symbol)
+        }
+        compactSymbolPicker.onPick = { [weak self] symbol in
+            self?.delegate?.accessoryInsertText(symbol)
+            self?.compactSymbolPicker.clearHover()
+            self?.symButton.setPreviewSymbol(nil)
+        }
 
         buildNormalPanel()
         buildNavPanel()
@@ -101,6 +114,7 @@ final class EditingAccessoryView: UIInputView {
         heightConstraint = heightAnchor.constraint(equalToConstant: Self.compactHeight)
         heightConstraint.priority = .required
         navWidthConstraint = navPad.widthAnchor.constraint(equalToConstant: Self.padWidth)
+        symWidthConstraint = symButton.widthAnchor.constraint(equalToConstant: 56)
         NSLayoutConstraint.activate([
             heightConstraint,
             navPad.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
@@ -111,7 +125,7 @@ final class EditingAccessoryView: UIInputView {
             symButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
             symButton.topAnchor.constraint(equalTo: navPad.topAnchor),
             symButton.bottomAnchor.constraint(equalTo: navPad.bottomAnchor),
-            symButton.widthAnchor.constraint(equalToConstant: 56),
+            symWidthConstraint,
 
             centerHost.leadingAnchor.constraint(equalTo: navPad.trailingAnchor, constant: 4),
             centerHost.trailingAnchor.constraint(equalTo: symButton.leadingAnchor, constant: -4),
@@ -146,6 +160,12 @@ final class EditingAccessoryView: UIInputView {
         syncKeyboardHeight(desiredHeight)
     }
 
+    func configure(language: RunLanguage) {
+        self.language = language
+        buildNormalPanel()
+        applyMode(delegate?.inputMode ?? .normal)
+    }
+
     func applyMode(_ mode: InputMode) {
         switch mode {
         case .normal:
@@ -160,21 +180,31 @@ final class EditingAccessoryView: UIInputView {
 
         let nav = mode.isNavigating
         let sym = mode == .symbols
+        let fixedBar = EditorSettings.shared.experimentFixedBar
         normalPanel.isHidden = nav || (sym && usesInternalSymbolPad)
         navPanel.isHidden = !nav
         symPanel.isHidden = !(sym && usesInternalSymbolPad)
+        expandedNavPanel.isHidden = fixedBar
+        compactNavPanel.isHidden = !fixedBar
+        symbolPicker.isHidden = fixedBar
+        compactSymbolPicker.isHidden = !fixedBar
         navPad.isNavHeld = nav
         navPad.isSelecting = mode.isSelecting
         navPad.isUserInteractionEnabled = !sym
-        navWidthConstraint.constant = (sym && usesInternalSymbolPad) ? 0 : Self.padWidth
+        let compactControls = EditorSettings.shared.experimentCompactControls
+        navWidthConstraint.constant = (sym && usesInternalSymbolPad) ? 0 : (compactControls ? 78 : Self.padWidth)
+        symWidthConstraint.constant = compactControls ? 48 : 56
         navPad.alpha = (sym && usesInternalSymbolPad) ? 0 : 1
         symButton.isHeld = sym
         if !sym {
             symbolPicker.clearHover()
+            compactSymbolPicker.clearHover()
             symButton.setPreviewSymbol(nil)
         }
         let height: CGFloat
-        if sym && usesInternalSymbolPad {
+        if fixedBar {
+            height = Self.compactHeight
+        } else if sym && usesInternalSymbolPad {
             height = Self.symbolHeight
         } else if nav {
             height = Self.navHeight
@@ -186,24 +216,27 @@ final class EditingAccessoryView: UIInputView {
 
     private func hoverSym(at point: CGPoint) {
         guard !symPanel.isHidden else { return }
+        let picker = EditorSettings.shared.experimentFixedBar ? compactSymbolPicker : symbolPicker
         if symButton.bounds.insetBy(dx: 2, dy: 2).contains(point) {
-            symbolPicker.clearHover()
+            picker.clearHover()
             symButton.setPreviewSymbol(nil)
             return
         }
-        symbolPicker.hover(at: symButton.convert(point, to: symbolPicker))
+        picker.hover(at: symButton.convert(point, to: picker))
     }
 
     private func finishSym(commit: Bool) {
-        if commit, let symbol = symbolPicker.commit() {
+        let picker = EditorSettings.shared.experimentFixedBar ? compactSymbolPicker : symbolPicker
+        if commit, let symbol = picker.commit() {
             delegate?.accessoryInsertText(symbol)
         }
-        symbolPicker.clearHover()
+        picker.clearHover()
         symButton.setPreviewSymbol(nil)
         delegate?.accessorySymUp()
     }
 
     private func setHeight(_ height: CGFloat) {
+        guard desiredHeight != height else { return }
         desiredHeight = height
         heightConstraint.constant = height
         invalidateIntrinsicContentSize()
@@ -244,34 +277,89 @@ final class EditingAccessoryView: UIInputView {
     }
 
     private func buildNormalPanel() {
+        normalPanel.subviews.forEach { $0.removeFromSuperview() }
+        let settings = EditorSettings.shared
         let indent = KeyButton(systemImage: "increase.indent")
         indent.enableSwipeAndLongPress()
         indent.onTap = { [weak self] in self?.delegate?.accessoryIndent() }
         indent.onSwipeLeft = { [weak self] in self?.delegate?.accessoryOutdent() }
         indent.onLongPress = { [weak self] in self?.delegate?.accessoryOutdent() }
+        indent.accessibilityLabel = "Indent"
+        indent.accessibilityHint = "Swipe left or hold to outdent"
 
-        let outdent = KeyButton(systemImage: "decrease.indent")
-        outdent.onTap = { [weak self] in self?.delegate?.accessoryOutdent() }
+        var buttons: [UIView] = [indent]
+        if !settings.experimentCompactControls {
+            let outdent = KeyButton(systemImage: "decrease.indent")
+            outdent.onTap = { [weak self] in self?.delegate?.accessoryOutdent() }
+            outdent.accessibilityLabel = "Outdent"
+            buttons.append(outdent)
+        }
 
-        let pairs: [(String, String, String)] = [
-            ("()", "(", ")"),
-            ("{}", "{", "}"),
-            ("[]", "[", "]"),
-            ("\"\"", "\"", "\""),
-            ("''", "'", "'"),
-            ("``", "`", "`"),
-        ]
-        var buttons: [UIView] = [indent, outdent]
-        for (title, open, close) in pairs {
+        func pair(_ title: String, _ open: String, _ close: String) -> KeyButton {
             let button = KeyButton(title: title, mono: true)
             button.onTap = { [weak self] in self?.delegate?.accessoryInsertPair(open: open, close: close) }
-            buttons.append(button)
+            button.accessibilityLabel = "Insert \(title) pair"
+            return button
         }
+
+        if settings.experimentCodeKeys {
+            buttons.append(pair("()", "(", ")"))
+
+            let dot = KeyButton(title: ".", mono: true)
+            dot.onTap = { [weak self] in self?.delegate?.accessoryInsertText(".") }
+            buttons.append(dot)
+
+            let equals = KeyButton(title: "=", mono: true)
+            equals.onTap = { [weak self] in self?.delegate?.accessoryInsertText("=") }
+            if settings.experimentOperatorSwipes {
+                equals.enableSwipeAndLongPress()
+                equals.onSwipeRight = { [weak self] in self?.delegate?.accessoryInsertText("==") }
+                equals.onSwipeLeft = { [weak self] in self?.delegate?.accessoryInsertText("=>") }
+                equals.accessibilityHint = "Swipe right for == or left for =>"
+            }
+            buttons.append(equals)
+
+            let colon = KeyButton(title: ":", mono: true)
+            colon.onTap = { [weak self] in self?.delegate?.accessoryInsertText(":") }
+            if settings.experimentOperatorSwipes {
+                colon.enableSwipeAndLongPress()
+                colon.onSwipeRight = { [weak self] in self?.delegate?.accessoryInsertText("::") }
+                colon.onSwipeLeft = { [weak self] in self?.delegate?.accessoryInsertText(":=") }
+                colon.accessibilityHint = "Swipe right for :: or left for :="
+            }
+            buttons.append(colon)
+
+            switch language {
+            case .python, .markdown:
+                buttons.append(pair("[]", "[", "]"))
+            case .typescript, .rust:
+                buttons.append(pair("{}", "{", "}"))
+            }
+        } else {
+            for (title, open, close) in [
+                ("()", "(", ")"), ("{}", "{", "}"), ("[]", "[", "]"),
+                ("\"\"", "\"", "\""), ("''", "'", "'"), ("``", "`", "`")
+            ] {
+                buttons.append(pair(title, open, close))
+            }
+        }
+
         let undo = KeyButton(systemImage: "arrow.uturn.backward")
         undo.onTap = { [weak self] in self?.delegate?.accessoryUndo() }
-        let redo = KeyButton(systemImage: "arrow.uturn.forward")
-        redo.onTap = { [weak self] in self?.delegate?.accessoryRedo() }
-        buttons.append(contentsOf: [undo, redo])
+        undo.accessibilityLabel = "Undo"
+        if settings.experimentCompactControls {
+            undo.enableSwipeAndLongPress()
+            undo.onSwipeRight = { [weak self] in self?.delegate?.accessoryRedo() }
+            undo.onLongPress = { [weak self] in self?.delegate?.accessoryRedo() }
+            undo.accessibilityHint = "Swipe right or hold to redo"
+        }
+        buttons.append(undo)
+        if !settings.experimentCompactControls {
+            let redo = KeyButton(systemImage: "arrow.uturn.forward")
+            redo.onTap = { [weak self] in self?.delegate?.accessoryRedo() }
+            redo.accessibilityLabel = "Redo"
+            buttons.append(redo)
+        }
 
         let stack = row(buttons)
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -311,14 +399,76 @@ final class EditingAccessoryView: UIInputView {
         stack.spacing = 6
         stack.distribution = .fillEqually
         stack.translatesAutoresizingMaskIntoConstraints = false
-        navPanel.addSubview(stack)
-        pin(stack, to: navPanel)
+        expandedNavPanel.translatesAutoresizingMaskIntoConstraints = false
+        navPanel.addSubview(expandedNavPanel)
+        pin(expandedNavPanel, to: navPanel)
+        expandedNavPanel.addSubview(stack)
+        pin(stack, to: expandedNavPanel)
+
+        let left = nav("chevron.left") { $0.accessoryMoveLeft(extending: $1) }
+        left.enableSwipeAndLongPress()
+        left.onSwipeLeft = { [weak self] in
+            guard let delegate = self?.delegate else { return }
+            delegate.accessoryMoveWordLeft(extending: delegate.inputMode.isSelecting)
+        }
+        left.onLongPress = { [weak self] in
+            guard let delegate = self?.delegate else { return }
+            delegate.accessoryHome(extending: delegate.inputMode.isSelecting)
+        }
+        left.accessibilityHint = "Swipe left for previous word; hold for line start"
+
+        let up = nav("chevron.up") { $0.accessoryMoveUp(extending: $1) }
+        up.enableSwipeAndLongPress()
+        up.onLongPress = { [weak self] in
+            guard let delegate = self?.delegate else { return }
+            delegate.accessoryPageUp(extending: delegate.inputMode.isSelecting)
+        }
+
+        let down = nav("chevron.down") { $0.accessoryMoveDown(extending: $1) }
+        down.enableSwipeAndLongPress()
+        down.onLongPress = { [weak self] in
+            guard let delegate = self?.delegate else { return }
+            delegate.accessoryPageDown(extending: delegate.inputMode.isSelecting)
+        }
+
+        let right = nav("chevron.right") { $0.accessoryMoveRight(extending: $1) }
+        right.enableSwipeAndLongPress()
+        right.onSwipeRight = { [weak self] in
+            guard let delegate = self?.delegate else { return }
+            delegate.accessoryMoveWordRight(extending: delegate.inputMode.isSelecting)
+        }
+        right.onLongPress = { [weak self] in
+            guard let delegate = self?.delegate else { return }
+            delegate.accessoryEnd(extending: delegate.inputMode.isSelecting)
+        }
+        right.accessibilityHint = "Swipe right for next word; hold for line end"
+
+        let more = KeyButton(systemImage: "ellipsis")
+        more.accessibilityLabel = "More editing actions"
+        more.menu = UIMenu(children: [
+            UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { [weak self] _ in self?.delegate?.accessoryCopy() },
+            UIAction(title: "Cut", image: UIImage(systemName: "scissors")) { [weak self] _ in self?.delegate?.accessoryCut() },
+            UIAction(title: "Paste", image: UIImage(systemName: "doc.on.clipboard")) { [weak self] _ in self?.delegate?.accessoryPaste() },
+            UIAction(title: "Expand selection", image: UIImage(systemName: "arrow.up.left.and.arrow.down.right")) { [weak self] _ in self?.delegate?.accessoryExpandSelection() },
+        ])
+        more.showsMenuAsPrimaryAction = true
+
+        let compact = row([left, up, down, right, more], spacing: 3)
+        compact.translatesAutoresizingMaskIntoConstraints = false
+        compactNavPanel.translatesAutoresizingMaskIntoConstraints = false
+        navPanel.addSubview(compactNavPanel)
+        pin(compactNavPanel, to: navPanel)
+        compactNavPanel.addSubview(compact)
+        pin(compact, to: compactNavPanel)
     }
 
     private func buildSymPanel() {
         symbolPicker.translatesAutoresizingMaskIntoConstraints = false
+        compactSymbolPicker.translatesAutoresizingMaskIntoConstraints = false
         symPanel.addSubview(symbolPicker)
+        symPanel.addSubview(compactSymbolPicker)
         pin(symbolPicker, to: symPanel)
+        pin(compactSymbolPicker, to: symPanel)
     }
 
     private func row(_ views: [UIView], spacing: CGFloat = 3) -> UIStackView {
