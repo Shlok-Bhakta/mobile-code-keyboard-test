@@ -1,7 +1,7 @@
 import UIKit
 
 final class SymbolPickerView: UIView {
-    static let rows: [[String]] = [
+    static let fullRows: [[String]] = [
         ["!", "@", "#", "$", "%", "^", "&", "*", "|", "~", "?"],
         ["(", ")", "{", "}", "[", "]", "<", ">", "/", "\\"],
         ["=", "+", "-", "_", ".", ",", ":", ";", "`", "'", "\""],
@@ -10,6 +10,7 @@ final class SymbolPickerView: UIView {
     var onHover: ((String?) -> Void)?
     var onPick: ((String) -> Void)?
 
+    private let rows: [[String]]
     private(set) var selected: String?
     private var tiles: [Tile] = []
     private var focus: Int?
@@ -22,12 +23,13 @@ final class SymbolPickerView: UIView {
         var rest: CGRect = .zero
     }
 
-    override init(frame: CGRect) {
-        super.init(frame: frame)
+    init(rows: [[String]] = SymbolPickerView.fullRows) {
+        self.rows = rows
+        super.init(frame: .zero)
         clipsToBounds = false
         isMultipleTouchEnabled = true
 
-        for row in Self.rows {
+        for row in rows {
             for symbol in row {
                 let view = UIView()
                 view.layer.cornerRadius = 8
@@ -100,10 +102,10 @@ final class SymbolPickerView: UIView {
     private func computeRest() {
         let grid = bounds.insetBy(dx: 1, dy: 1)
         guard grid.width > 8, grid.height > 8 else { return }
-        let rowCount = CGFloat(Self.rows.count)
+        let rowCount = CGFloat(rows.count)
         let rowH = (grid.height - gap * (rowCount - 1)) / rowCount
         var i = 0
-        for (r, row) in Self.rows.enumerated() {
+        for (r, row) in rows.enumerated() {
             let n = CGFloat(row.count)
             let colW = (grid.width - gap * (n - 1)) / n
             let y = grid.minY + CGFloat(r) * (rowH + gap)

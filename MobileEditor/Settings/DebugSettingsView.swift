@@ -27,7 +27,7 @@ struct DebugSettingsView: View {
                         EditorSettings.shared.runLanguage = new
                         onChange()
                     }
-                    Text("Sets the runner and highlighting. The editing bar stays the same.")
+                    Text("Sets the runner, highlighting, and the fifth experimental code key.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
