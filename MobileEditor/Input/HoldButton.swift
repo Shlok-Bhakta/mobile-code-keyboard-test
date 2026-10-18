@@ -105,9 +105,10 @@ final class HoldButton: UIControl {
 final class KeyButton: UIButton {
     var onTap: (() -> Void)?
     var onSwipeLeft: (() -> Void)?
+    var onSwipeRight: (() -> Void)?
     var onLongPress: (() -> Void)?
 
-    private var swiped = false
+    private var gestureHandled = false
     private var longTimer: Timer?
     private var swipeEnabled = false
     private var startPoint: CGPoint?
@@ -161,7 +162,7 @@ final class KeyButton: UIButton {
     }
 
     @objc private func tapped() {
-        if swiped { return }
+        if gestureHandled { return }
         onTap?()
     }
 
@@ -171,12 +172,13 @@ final class KeyButton: UIButton {
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesBegan(touches, with: event)
-        swiped = false
+        gestureHandled = false
         startPoint = touches.first?.location(in: self)
-        guard swipeEnabled else { return }
+        guard swipeEnabled, onLongPress != nil else { return }
         longTimer?.invalidate()
         longTimer = Timer.scheduledTimer(withTimeInterval: 0.45, repeats: false) { [weak self] _ in
-            guard let self, !self.swiped else { return }
+            guard let self, !self.gestureHandled else { return }
+            self.gestureHandled = true
             self.onLongPress?()
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         }
@@ -186,10 +188,14 @@ final class KeyButton: UIButton {
         super.touchesMoved(touches, with: event)
         guard swipeEnabled, let touch = touches.first, let start = startPoint else { return }
         let x = touch.location(in: self).x - start.x
-        if x < -22, !swiped {
-            swiped = true
+        if x < -22, !gestureHandled, let onSwipeLeft {
+            gestureHandled = true
             longTimer?.invalidate()
-            onSwipeLeft?()
+            onSwipeLeft()
+        } else if x > 22, !gestureHandled, let onSwipeRight {
+            gestureHandled = true
+            longTimer?.invalidate()
+            onSwipeRight()
         }
     }
 

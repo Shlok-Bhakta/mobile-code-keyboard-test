@@ -266,6 +266,11 @@ final class EditorController {
         preferredColumnX = nil
     }
 
+    func jump(toUTF16Offset offset: Int) {
+        setFreeEnd(offset, extending: false)
+        clearPreferredColumn()
+    }
+
     private func moveByCharacters(_ delta: Int, extending: Bool) {
         guard let tv = textView else { return }
         if !extending, tv.selectedRange.length > 0 {

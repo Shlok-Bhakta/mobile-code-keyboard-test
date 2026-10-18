@@ -1,15 +1,18 @@
 import SwiftUI
 import UIKit
 
-final class EditorViewController: UIViewController, UITextViewDelegate, EditingAccessoryDelegate {
+final class EditorViewController: UIViewController, UITextViewDelegate, UITextFieldDelegate, EditingAccessoryDelegate {
     let controller = EditorController()
     private let textView = CodeTextView()
     private let gutter = LineNumberGutter()
     private let accessory = EditingAccessoryView()
     private let chrome = UIView()
     private let findBar = FindBar()
+    private let jumpField = FlashJumpTextField()
+    private let jumpOverlay = FlashJumpOverlay()
     private let langTag = UILabel()
     private var runButton: UIButton?
+    private var experimentButton: UIButton?
     private var findHeight: NSLayoutConstraint?
     private var saveWork: DispatchWorkItem?
     private var highlightWork: DispatchWorkItem?
@@ -18,6 +21,8 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
     private var navHeld = false
     private var selectHeld = false
     private var symHeld = false
+    private var jumpActive = false
+    private var jumpTargets: [FlashJumpTarget] = []
     private(set) var inputMode: InputMode = .normal
 
     override func viewDidLoad() {
@@ -32,6 +37,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
         textView.inputAccessoryView = accessory
         accessory.delegate = self
         accessory.usesInternalSymbolPad = true
+        accessory.configure(language: EditorSettings.shared.runLanguage)
 
         gutter.textView = textView
         gutter.onSelectLines = { [weak self] from, to in
@@ -60,14 +66,17 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
         super.viewDidAppear(animated)
         textView.inputView = nil
         textView.inputAccessoryView = accessory
-        textView.becomeFirstResponder()
-        textView.reloadInputViews()
+        if !jumpField.isFirstResponder {
+            textView.becomeFirstResponder()
+            textView.reloadInputViews()
+        }
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         gutter.reload()
         textView.applyWrapping()
+        refreshJump()
     }
 
     private func layoutParts() {
@@ -75,10 +84,12 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
         findBar.translatesAutoresizingMaskIntoConstraints = false
         gutter.translatesAutoresizingMaskIntoConstraints = false
         textView.translatesAutoresizingMaskIntoConstraints = false
+        jumpOverlay.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(chrome)
         view.addSubview(findBar)
         view.addSubview(gutter)
         view.addSubview(textView)
+        view.addSubview(jumpOverlay)
 
         NSLayoutConstraint.activate([
             chrome.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
@@ -99,6 +110,10 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
             textView.leadingAnchor.constraint(equalTo: gutter.trailingAnchor),
             textView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             textView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            jumpOverlay.topAnchor.constraint(equalTo: textView.topAnchor),
+            jumpOverlay.leadingAnchor.constraint(equalTo: textView.leadingAnchor),
+            jumpOverlay.trailingAnchor.constraint(equalTo: textView.trailingAnchor),
+            jumpOverlay.bottomAnchor.constraint(equalTo: textView.bottomAnchor),
         ])
 
         let height = findBar.heightAnchor.constraint(equalToConstant: 0)
@@ -132,9 +147,55 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
         let tune = iconButton("slider.horizontal.3")
         tune.addTarget(self, action: #selector(openSettings), for: .touchUpInside)
 
-        let stack = UIStackView(arrangedSubviews: [samples, langTag, UIView(), run, find, tune])
+        let experiments = UIButton(type: .system)
+        experiments.setTitle("KEYS", for: .normal)
+        experiments.titleLabel?.font = UIFont.systemFont(ofSize: 12, weight: .bold)
+        experiments.tintColor = .systemBlue
+        experiments.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.16)
+        experiments.layer.cornerRadius = 6
+        experiments.widthAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+        experiments.accessibilityLabel = "Keyboard experiments"
+        experiments.menu = makeExperimentMenu()
+        experiments.showsMenuAsPrimaryAction = true
+        experimentButton = experiments
+
+        jumpField.placeholder = "JUMP"
+        jumpField.font = UIFont.monospacedSystemFont(ofSize: 11, weight: .bold)
+        jumpField.textAlignment = .center
+        jumpField.textColor = .label
+        jumpField.tintColor = .systemPurple
+        jumpField.backgroundColor = UIColor.systemPurple.withAlphaComponent(0.16)
+        jumpField.layer.cornerRadius = 6
+        jumpField.autocapitalizationType = .none
+        jumpField.autocorrectionType = .no
+        jumpField.spellCheckingType = .no
+        jumpField.smartQuotesType = .no
+        jumpField.smartDashesType = .no
+        jumpField.textContentType = UITextContentType(rawValue: "")
+        if #available(iOS 17.0, *) {
+            jumpField.inlinePredictionType = .no
+        }
+        jumpField.returnKeyType = .go
+        let cancelJump = UIButton(type: .system)
+        cancelJump.setImage(UIImage(systemName: "xmark.circle.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 11)), for: .normal)
+        cancelJump.tintColor = .secondaryLabel
+        cancelJump.accessibilityLabel = "Cancel jump"
+        cancelJump.addTarget(self, action: #selector(cancelJumpTapped), for: .touchUpInside)
+        cancelJump.frame = CGRect(x: 0, y: 0, width: 20, height: 28)
+        jumpField.rightView = cancelJump
+        jumpField.rightViewMode = .whileEditing
+        jumpField.delegate = self
+        jumpField.addTarget(self, action: #selector(jumpQueryChanged), for: .editingChanged)
+        jumpField.onEscape = { [weak self] in self?.stopJump(restoreEditor: true) }
+        jumpField.accessibilityLabel = "Jump to visible code"
+        jumpField.accessibilityIdentifier = "flashJumpField"
+        jumpField.widthAnchor.constraint(equalToConstant: 68).isActive = true
+        jumpField.heightAnchor.constraint(equalToConstant: 28).isActive = true
+        jumpField.isHidden = !EditorSettings.shared.experimentFlashJump
+
+        let stack = UIStackView(arrangedSubviews: [samples, langTag, UIView(), run, find, jumpField, experiments, tune])
         stack.axis = .horizontal
-        stack.spacing = 18
+        stack.spacing = 10
         stack.alignment = .center
         stack.translatesAutoresizingMaskIntoConstraints = false
         chrome.addSubview(stack)
@@ -167,6 +228,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
     }
 
     private func loadSample(_ sample: SampleDocuments.Sample) {
+        stopJump(restoreEditor: false)
         textView.text = sample.text
         textView.selectedRange = NSRange(location: 0, length: 0)
         setLanguage(sample.language)
@@ -193,6 +255,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
         selectHeld = false
         symHeld = false
         setMode(.normal)
+        if !jumpField.isFirstResponder { stopJump(restoreEditor: false) }
     }
 
     private func persistSoon() {
@@ -210,6 +273,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
     }
 
     private func showFind(_ visible: Bool) {
+        if visible { stopJump(restoreEditor: false) }
         findBar.isHidden = !visible
         findHeight?.constant = visible ? 44 : 0
         view.layoutIfNeeded()
@@ -219,12 +283,14 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
     }
 
     @objc private func openSettings() {
+        stopJump(restoreEditor: false)
         let host = UIHostingController(rootView: DebugSettingsView(
             onChange: { [weak self] in
                 self?.textView.applyFont()
                 self?.textView.applyWrapping()
                 self?.gutter.reload()
                 self?.updateRunChrome()
+                self?.accessory.configure(language: EditorSettings.shared.runLanguage)
                 self?.highlightSoon()
             },
             onDismiss: { [weak self] in
@@ -244,8 +310,61 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
 
     private func setLanguage(_ language: RunLanguage) {
         EditorSettings.shared.runLanguage = language
+        accessory.configure(language: language)
         updateRunChrome()
         highlightSoon()
+    }
+
+    private func makeExperimentMenu() -> UIMenu {
+        let settings = EditorSettings.shared
+        func option(_ title: String, on: Bool, change: @escaping () -> Void) -> UIAction {
+            UIAction(title: title, state: on ? .on : .off) { [weak self] _ in
+                change()
+                self?.refreshExperimentMenu()
+            }
+        }
+        return UIMenu(title: "Keyboard experiments", children: [
+            option("Larger code keys", on: settings.experimentCodeKeys) {
+                settings.experimentCodeKeys.toggle()
+            },
+            option("Compact controls", on: settings.experimentCompactControls) {
+                settings.experimentCompactControls.toggle()
+            },
+            option("Fixed 50 pt bar", on: settings.experimentFixedBar) {
+                settings.experimentFixedBar.toggle()
+            },
+            option("Operator swipes on code keys", on: settings.experimentOperatorSwipes) {
+                settings.experimentOperatorSwipes.toggle()
+            },
+            option("Flash jump", on: settings.experimentFlashJump) {
+                settings.experimentFlashJump.toggle()
+            },
+            UIMenu(title: "Presets", children: [
+                UIAction(title: "All experiments on") { [weak self] _ in
+                    settings.experimentCodeKeys = true
+                    settings.experimentCompactControls = true
+                    settings.experimentFixedBar = true
+                    settings.experimentOperatorSwipes = true
+                    settings.experimentFlashJump = true
+                    self?.refreshExperimentMenu()
+                },
+                UIAction(title: "Original keyboard bar") { [weak self] _ in
+                    settings.experimentCodeKeys = false
+                    settings.experimentCompactControls = false
+                    settings.experimentFixedBar = false
+                    settings.experimentOperatorSwipes = false
+                    settings.experimentFlashJump = false
+                    self?.refreshExperimentMenu()
+                },
+            ]),
+        ])
+    }
+
+    private func refreshExperimentMenu() {
+        accessory.configure(language: EditorSettings.shared.runLanguage)
+        if !EditorSettings.shared.experimentFlashJump { stopJump(restoreEditor: true) }
+        jumpField.isHidden = !EditorSettings.shared.experimentFlashJump
+        experimentButton?.menu = makeExperimentMenu()
     }
 
     private func updateRunChrome() {
@@ -255,6 +374,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
     }
 
     @objc private func runTapped() {
+        stopJump(restoreEditor: false)
         EditorLog.event("RUN")
         let language = EditorSettings.shared.runLanguage
         guard language.isRunnable else {
@@ -273,6 +393,111 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
             onDismiss: { [weak self] in self?.dismiss(animated: true) }
         ))
         present(host, animated: true)
+    }
+
+    // MARK: Flash jump
+
+    func textFieldDidBeginEditing(_ textField: UITextField) {
+        guard textField === jumpField else { return }
+        resetModes()
+        if !findBar.isHidden { showFind(false) }
+        jumpActive = true
+        jumpField.backgroundColor = UIColor.systemPurple.withAlphaComponent(0.28)
+        refreshJump()
+    }
+
+    func textFieldDidEndEditing(_ textField: UITextField) {
+        guard textField === jumpField else { return }
+        stopJump(restoreEditor: false)
+    }
+
+    func textField(
+        _ textField: UITextField,
+        shouldChangeCharactersIn range: NSRange,
+        replacementString string: String
+    ) -> Bool {
+        guard textField === jumpField else { return true }
+        if range.length == 0, range.location == (jumpField.text ?? "").utf16.count,
+           let target = FlashJumpModel.target(for: string, among: jumpTargets) {
+            completeJump(to: target)
+            return false
+        }
+        return true
+    }
+
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        guard textField === jumpField else { return true }
+        if let target = jumpTargets.first {
+            completeJump(to: target)
+        } else {
+            stopJump(restoreEditor: true)
+        }
+        return false
+    }
+
+    @objc private func jumpQueryChanged() {
+        refreshJump()
+        if let target = FlashJumpModel.automaticTarget(query: jumpField.text ?? "", targets: jumpTargets) {
+            completeJump(to: target)
+        }
+    }
+
+    @objc private func cancelJumpTapped() {
+        stopJump(restoreEditor: true)
+    }
+
+    private func refreshJump() {
+        guard jumpActive, let query = jumpField.text, !query.isEmpty,
+              textView.bounds.width > 0, textView.bounds.height > 0 else {
+            jumpTargets = []
+            jumpOverlay.clear()
+            return
+        }
+        let text = (textView.text ?? "") as NSString
+        let layout = textView.layoutManager
+        layout.ensureLayout(for: textView.textContainer)
+        let visibleRect = CGRect(origin: textView.contentOffset, size: textView.bounds.size)
+        let glyphs = layout.glyphRange(forBoundingRect: visibleRect, in: textView.textContainer)
+        let visible = layout.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
+        jumpTargets = FlashJumpModel.targets(
+            in: text,
+            query: query,
+            visibleRange: visible,
+            caretOffset: textView.selectedRange.location,
+            isVisible: { [weak self] range in
+                guard let self,
+                      let start = self.textView.position(from: self.textView.beginningOfDocument, offset: range.location),
+                      let end = self.textView.position(from: start, offset: range.length),
+                      let uiRange = self.textView.textRange(from: start, to: end)
+                else { return false }
+                let rect = self.textView.firstRect(for: uiRange)
+                let keyboardTop = self.textView.convert(self.view.keyboardLayoutGuide.layoutFrame, from: self.view).minY
+                let viewport = CGRect(
+                    x: 0, y: 0,
+                    width: self.textView.bounds.width,
+                    height: max(0, min(self.textView.bounds.height, keyboardTop))
+                )
+                return rect.intersects(viewport) && rect.width > 0 && rect.height > 0
+            }
+        )
+        jumpOverlay.show(jumpTargets, in: textView)
+    }
+
+    private func completeJump(to target: FlashJumpTarget) {
+        stopJump(restoreEditor: true)
+        controller.jump(toUTF16Offset: target.range.location)
+        EditorHaptics.modeEnter()
+    }
+
+    private func stopJump(restoreEditor: Bool) {
+        guard jumpActive || jumpField.isFirstResponder else { return }
+        jumpActive = false
+        jumpTargets = []
+        jumpOverlay.clear()
+        jumpField.text = nil
+        jumpField.backgroundColor = UIColor.systemPurple.withAlphaComponent(0.16)
+        jumpField.resignFirstResponder()
+        if restoreEditor { textView.becomeFirstResponder() }
     }
 
     // MARK: Highlight
@@ -321,6 +546,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
     }
 
     func textViewDidChange(_ textView: UITextView) {
+        stopJump(restoreEditor: false)
         persistSoon()
         gutter.reload()
         controller.clearPreferredColumn()
@@ -336,6 +562,7 @@ final class EditorViewController: UIViewController, UITextViewDelegate, EditingA
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         gutter.reload()
+        refreshJump()
     }
 
     // MARK: Accessory
